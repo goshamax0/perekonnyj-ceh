@@ -1502,6 +1502,40 @@ function safeStore(key,val){
 function safeLoad(key,fallback){
   try{const v=JSON.parse(localStorage.getItem(APP_KEY+':'+key)); return v??fallback;}catch(e){return fallback;}
 }
+
+/* Persist calculator inputs so the last entered values survive app restarts. */
+const INPUTS_KEY='calculator-inputs-v1';
+function saveCalcInputs(){
+  try{
+    const state={};
+    qsa('.calc').forEach(sec=>{
+      const values={};
+      qsa('input,select,textarea',sec).forEach(el=>{
+        if(!el.id || el.disabled) return;
+        values[el.id]={id:el.id,value:el.value,checked:el.checked};
+      });
+      state[sec.dataset.id]=values;
+    });
+    localStorage.setItem(APP_KEY+':'+INPUTS_KEY,JSON.stringify(state));
+  }catch(e){}
+}
+function restoreCalcInputs(){
+  try{
+    const state=JSON.parse(localStorage.getItem(APP_KEY+':'+INPUTS_KEY)||'{}');
+    Object.values(state).forEach(values=>Object.values(values||{}).forEach(item=>{
+      const el=document.getElementById(item.id);
+      if(!el || el.disabled) return;
+      el.value=item.value ?? '';
+      if('checked' in item) el.checked=!!item.checked;
+    }));
+  }catch(e){}
+}
+function installInputPersistence(){
+  qsa('.calc input, .calc select, .calc textarea').forEach(el=>{
+    el.addEventListener('input',saveCalcInputs);
+    el.addEventListener('change',saveCalcInputs);
+  });
+}
 function updateMobileTitle(id){
   const item=qs('.nav-item[data-target="'+id+'"]');
   const title=item?item.textContent.trim():'Перегонный цех';
@@ -1586,6 +1620,13 @@ calcSpiritTemp(); calcSaccharTemp(); calcBrixSG();
 calcBeerABV(); calcStrikeWater(); calcIBU(); calcSRM(); calcPriming();
 calcChapt(); calcMustDilute(); calcAbvAbw();
 enhanceSelect('y_type'); enhanceSelect('bx_mode'); enhanceSelect('pr_sugar_type'); enhanceSelect('aw_mode');
+restoreCalcInputs();
+calcDilute(); calcBlend(); calcGabriel(); calcFractional(); calcCharge(); calcYield();
+calcSpiritTemp(); calcSaccharTemp(); calcBrixSG();
+calcBeerABV(); calcStrikeWater(); calcIBU(); calcSRM(); calcPriming();
+calcChapt(); calcMustDilute(); calcAbvAbw();
+installInputPersistence();
+saveCalcInputs();
 const initialId=(location.hash||'').slice(1); showCalc(qs('.calc[data-id="'+initialId+'"]')?initialId:'dilute');
 </script>
 
