@@ -614,10 +614,11 @@ input:focus,select:focus{
           <div class="value small" id="d_total">—</div><span class="unit">л</span>
         </div>
         <div class="result">
-          <div class="label">Без учёта контракции (простая пропорция)</div>
-          <div class="value small" id="d_naive">—</div><span class="unit">л воды</span>
+          <div class="label" id="d_naive_label">Без учёта контракции (простая пропорция)</div>
+          <div class="value small" id="d_naive">—</div><span class="unit" id="d_naive_unit">л воды</span>
         </div>
       </div>
+      <div class="note" id="d_validation" aria-live="polite">Введите параметры — расчёт обновится автоматически.</div>
       <div class="note">Простая формула «C₁V₁=C₂V₂» немного занижает нужный объём воды — при смешивании спирта и воды итоговый объём получается меньше суммы объёмов. Значение «Добавить воды» уже учитывает эту усадку через баланс масс, а также плотность воды при указанной вами температуре (а не только стандартные 20°C).</div>
     </section>
 
@@ -685,6 +686,8 @@ input:focus,select:focus{
       </div>
       <fieldset>
         <legend>Доля «голов» от абсолютного спирта</legend>
+        <label for="g_heads_basis" class="compact-basis-label">Как трактовать процент голов</label>
+        <select id="g_heads_basis"><option value="volume">Объём голов = % от объёма АС</option><option value="alcohol">Чистый спирт в головах = % АС</option></select>
         <div class="range-row"><input type="range" id="g_pct" min="5" max="15" step="0.5" value="10"><output id="g_pct_out">10%</output></div>
       </fieldset>
 
@@ -698,8 +701,8 @@ input:focus,select:focus{
 
     <section class="calc" data-id="fractional">
       <h2>Дробная перегонка: головы / тело / хвосты</h2>
-      <p class="desc">Плановая разбивка спирта-сырца на три фракции по абсолютному спирту (АС) — сколько примерно получится голов, тела («сердца») и хвостов при заданных долях отбора.</p>
-      <p class="source">Тот же принцип, что и в методе Габриэля, распространён на все три фракции: доли АС — практические эвристики сообщества самогонщиков, а не лабораторный стандарт. Объёмы фракций получаются делением АС фракции на её ожидаемую среднюю крепость в струе — эту крепость перегонщик обычно оценивает по опыту или по показаниям спиртометра на выходе.</p>
+      <p class="desc">Плановая разбивка спирта-сырца на три фракции. Доли голов и хвостов задаются именно от абсолютного спирта (АС), а не от литров сырца.</p>
+      <p class="source">Важно: в практике под «10% от АС» понимают две разные вещи. Режим по умолчанию считает объём голов как 10% от объёма абсолютного спирта; альтернативный режим считает, что в головах должно содержаться 10% АС, и делит это количество на заданную крепость голов. Пример: 5 л сырца × 30% = 1,5 л АС. При 10% первый способ даёт 150 мл голов; второй при средней крепости 80% — 187,5 мл. Выберите тот способ, которым вы реально пользуетесь. Ни один расчёт не определяет безопасную точку отсечения автоматически.</p>
 
       <div class="measure-block">
         <div class="measure-label">
@@ -719,6 +722,8 @@ input:focus,select:focus{
 
       <fieldset>
         <legend>Головы</legend>
+        <label for="fr_heads_basis" class="compact-basis-label">Как трактовать процент голов</label>
+        <select id="fr_heads_basis"><option value="volume">Объём голов = % от объёма АС</option><option value="alcohol">Чистый спирт в головах = % АС</option></select>
         <div class="field-grid">
           <div class="field">
             <label>Доля от АС</label>
@@ -1202,7 +1207,7 @@ function correctSpiritReading(reading, T){
   const S=Number(reading), t=Number(T);
   if(isNaN(S)) return 0;
   const tt=isNaN(t)?20:t;
-  return S + (20-tt)*0.3;
+  return clamp(S + (20-tt)*0.3, 0, 100);
 }
 /* Wires a "reading + temperature -> corrected 20°C value" measurement block.
    Returns a function get() that reads the current corrected value on demand. */
@@ -1322,6 +1327,14 @@ function calcDilute(){
   qs('#d_c1_corrected').textContent = fmt(C1,2)+' % об.';
   const V1=clamp(qs('#d_v1').value,0,100000);
   const C2=clamp(qs('#d_c2').value,0.0001,100);
+  const validation=qs('#d_validation');
+  if(C1<=0 || C2>C1){
+    qs('#d_water').textContent='—'; qs('#d_total').textContent='—'; qs('#d_naive').textContent='—';
+    if(validation) validation.textContent=C1<=0?'Укажите положительную исходную крепость.':'Невозможно разбавлением получить крепость выше исходной. Уменьшите целевую крепость или используйте другой исходный спирт.';
+    return;
+  }
+  if(validation) validation.textContent='Баланс массы учитывает плотность водно-спиртового раствора и температуру воды; результат — оценка при стандартной температуре раствора 20°C.';
+  if(qs('#d_naive_label')) qs('#d_naive_label').textContent='Без учёта контракции (простая пропорция)';
   const waterTemp = Number(qs('#d_water_temp').value);
   const rho1=densityFromABV(C1), w1=wFromABV(C1);
   const mass1=V1*rho1;
@@ -1371,13 +1384,16 @@ function calcGabriel(){
   const headsAbv=clamp(qs('#g_headsabv').value,1,100);
   const pct=Number(qs('#g_pct').value);
   const aa=V*C/100;
-  const headsAA=aa*pct/100;
-  const headsVol=headsAA/(headsAbv/100);
+  // The phrase "10% of absolute alcohol" is used in two different ways in practice.
+  // Make the convention explicit instead of silently mixing the two meanings.
+  const basis=qs('#g_heads_basis')?.value||'volume';
+  const headsVol=basis==='volume' ? aa*pct/100 : (aa*pct/100)/(headsAbv/100);
+  const headsAA=basis==='volume' ? headsVol*(headsAbv/100) : aa*pct/100;
   qs('#g_aa').textContent=fmt(aa,3);
   qs('#g_headsaa').textContent=fmt(headsAA,3);
   qs('#g_headsvol').textContent=fmt(headsVol*1000,0);
 }
-['g_c_reading','g_c_temp','g_v','g_headsabv','g_pct'].forEach(id=>qs('#'+id).addEventListener('input',calcGabriel));
+['g_c_reading','g_c_temp','g_v','g_headsabv','g_pct','g_heads_basis'].forEach(id=>qs('#'+id).addEventListener('input',calcGabriel));
 bindRange('g_pct','g_pct_out','%');
 qs('#g_pct').addEventListener('input',calcGabriel);
 
@@ -1391,11 +1407,12 @@ function calcFractional(){
   const heartsAbv=clamp(qs('#fr_heartsabv').value,1,100);
 
   const aaTotal=V*C/100;
-  const headsAA=aaTotal*headsPct/100;
+  const headsBasis=qs('#fr_heads_basis')?.value||'volume';
+  // Explicitly separate two conventions that are often both called "% of absolute alcohol".
+  const headsVol=headsBasis==='volume' ? aaTotal*headsPct/100 : (aaTotal*headsPct/100)/(headsAbv/100);
+  const headsAA=headsBasis==='volume' ? headsVol*(headsAbv/100) : aaTotal*headsPct/100;
   const tailsAA=aaTotal*tailsPct/100;
   const heartsAA=Math.max(0,aaTotal-headsAA-tailsAA);
-
-  const headsVol=headsAA/(headsAbv/100);
   const tailsVol=tailsAA/(tailsAbv/100);
   const heartsVol=heartsAA/(heartsAbv/100);
 
@@ -1407,7 +1424,7 @@ function calcFractional(){
   const sumVol=headsVol+heartsVol+tailsVol;
   qs('#fr_sum_note').textContent = 'Суммарный объём трёх фракций по расчёту ≈ '+fmt(sumVol,3)+' л. Он не обязан совпасть с объёмом сырца в кубе ('+fmt(V,3)+' л) — расхождение отражает то, что средние крепости фракций вы указали приблизительно, по своему опыту работы с аппаратом.';
 }
-['fr_v','fr_c_reading','fr_c_temp','fr_headspct','fr_headsabv','fr_tailspct','fr_tailsabv','fr_heartsabv'].forEach(id=>qs('#'+id).addEventListener('input',calcFractional));
+['fr_v','fr_c_reading','fr_c_temp','fr_headspct','fr_headsabv','fr_heads_basis','fr_tailspct','fr_tailsabv','fr_heartsabv'].forEach(id=>qs('#'+id).addEventListener('input',calcFractional));
 bindRange('fr_headspct','fr_headspct_out','%');
 bindRange('fr_tailspct','fr_tailspct_out','%');
 
@@ -1654,6 +1671,8 @@ function updateDilutionMode(){
   qsa('#d_mode_switch button').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
   if(qs('#d_water_label')) qs('#d_water_label').textContent=mode==='target'?'Добавить воды':'Добавить воды';
   if(qs('#d_total_label')) qs('#d_total_label').textContent=mode==='target'?'Готовый объём':'Итоговый объём';
+  if(qs('#d_naive_label')) qs('#d_naive_label').textContent=mode==='target'?'Исходный спирт потребуется':'Без учёта контракции (простая пропорция)';
+  if(qs('#d_naive_unit')) qs('#d_naive_unit').textContent=mode==='target'?'л спирта':'л воды';
   calcDilute();
 }
 function calcDiluteTarget(){
@@ -1661,6 +1680,15 @@ function calcDiluteTarget(){
   const C2=clamp(qs('#d_c2').value,0.0001,100);
   const V=clamp(qs('#d_target_vol').value,0.01,10000);
   const wt=Number(qs('#d_water_temp').value);
+  const validation=qs('#d_validation');
+  if(C1<=0 || C2>C1){
+    qs('#d_c1_corrected').textContent=fmt(C1,2)+' % об.';
+    qs('#d_water').textContent='—'; qs('#d_total').textContent='—'; qs('#d_naive').textContent='—';
+    if(validation) validation.textContent=C1<=0?'Укажите положительную исходную крепость.':'Невозможно получить целевую крепость выше исходной. Выберите более крепкий исходный спирт или уменьшите целевую крепость.';
+    return {error:'target-abv-exceeds-source'};
+  }
+  if(validation) validation.textContent='Для заданной тары требуется '+fmt(V,3)+' л готового раствора при 20°C.';
+  if(qs('#d_naive_label')) qs('#d_naive_label').textContent='Исходный спирт потребуется';
   const rho1=densityFromABV(C1), w1=wFromABV(C1);
   const rho2=densityFromABV(C2), w2=wFromABV(C2);
   const rhoW=waterDensityAtTemp(wt);
@@ -1673,7 +1701,7 @@ function calcDiluteTarget(){
   qs('#d_c1_corrected').textContent=fmt(C1,2)+' % об.';
   qs('#d_water').textContent=fmt(vWater,3);
   qs('#d_total').textContent=fmt(V,3);
-  qs('#d_naive').textContent=fmt(V-(V*C2/C1),3);
+  qs('#d_naive').textContent=fmt(vSource,3)+' л';
   return {C1,C2,V,vSource,vWater,mWater};
 }
 const _calcDilute=calcDilute;
@@ -1926,6 +1954,46 @@ const initialId=(location.hash||'').slice(1); showCalc(qs('.calc[data-id="'+init
   #pwaInstallHint b{display:block;font-size:15px;margin-bottom:4px}
   #pwaInstallHint button{margin-top:9px;border:0;border-radius:12px;padding:9px 12px;background:#b06f3d;color:#fff;font-weight:700}
   @media(min-width:769px){#pwaInstallHint{display:none!important}}
+
+/* v7 — compact, one-screen-first iPhone layout */
+@media(max-width:600px){
+  .content{padding:12px 12px calc(84px + env(safe-area-inset-bottom)) !important;}
+  .calc h2{font-size:1.38rem !important;line-height:1.12;margin:0 0 7px !important;}
+  .calc .desc{font-size:.84rem;line-height:1.35;margin:0 0 8px;}
+  .calc .source{font-size:.78rem;line-height:1.4;margin:0;}
+  .field-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:10px;}
+  .field{min-width:0;gap:4px;}
+  .field label,.mi label,.compact-basis-label{font-size:.76rem;line-height:1.2;}
+  .compact-basis-label{display:block;color:var(--muted);margin:4px 0;}
+  input[type=number],select{min-height:42px;padding:8px 10px;font-size:16px;border-radius:10px;}
+  .hint{font-size:.68rem;line-height:1.2;}
+  .measure-block{padding:9px 10px;margin-bottom:9px;border-radius:12px;}
+  .measure-label{font-size:.78rem;margin-bottom:6px;}
+  .measure-inputs{gap:8px;}
+  .measure-inputs .mi{min-width:calc(50% - 4px);}
+  .measure-corrected{margin-top:6px;padding:6px 8px;font-size:.78rem;}
+  fieldset{padding:9px 10px 10px;margin-bottom:9px;}
+  legend{font-size:.75rem;}
+  .range-row{gap:7px;}
+  .range-row output{font-size:.8rem;min-width:42px;}
+  .results{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:10px 0;}
+  .result{padding:10px 11px;border-radius:12px;min-width:0;}
+  .result .label{font-size:.7rem;line-height:1.2;margin-bottom:4px;}
+  .result .value{font-size:1.35rem;line-height:1.12;overflow-wrap:anywhere;}
+  .result .value.small{font-size:1.02rem;}
+  .result .unit{font-size:.75rem;margin-left:2px;}
+  .note,.warn{padding:9px 10px;font-size:.76rem;line-height:1.35;margin-top:8px;}
+  .divider{margin:14px 0;}
+  .compact-advanced{margin:0 0 8px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.025);}
+  .compact-advanced summary{cursor:pointer;list-style:none;padding:8px 10px;color:var(--muted);font-size:.78rem;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .compact-advanced summary::-webkit-details-marker{display:none;}
+  .compact-advanced summary:after{content:'＋';font-size:1rem;color:var(--copper-bright);}
+  .compact-advanced[open] summary:after{content:'−';}
+  .compact-advanced .advanced-body{padding:0 9px 9px;}
+  .source-details{margin:6px 0 10px;}
+  .source-details summary{font-size:.73rem;color:var(--muted-2);cursor:pointer;}
+  .source-details .source{margin-top:5px;}
+}
 </style>
 <div id="pwaInstallHint" role="status" aria-live="polite">
   <b>Установить «Перегонный цех»</b>
@@ -1942,6 +2010,33 @@ const initialId=(location.hash||'').slice(1); showCalc(qs('.calc[data-id="'+init
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', ()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
   }
+})();
+</script>
+
+
+<script>
+/* v7 compact progressive disclosure: preserve all fields and calculation IDs. */
+(function(){
+  // Technical source notes are available on demand instead of consuming the first screen.
+  document.querySelectorAll('.calc .source').forEach((p)=>{
+    if(p.closest('details')) return;
+    const d=document.createElement('details'); d.className='source-details';
+    const summary=document.createElement('summary'); summary.textContent='Методика и точность';
+    p.parentNode.insertBefore(d,p); d.appendChild(summary); d.appendChild(p);
+  });
+  // Temperatures are secondary inputs; keep corrected readings visible and tuck the inputs away.
+  if (window.matchMedia('(max-width: 600px)').matches) document.querySelectorAll('.measure-block').forEach((block)=>{
+    const inputs=block.querySelector('.measure-inputs');
+    if(!inputs || inputs.closest('details')) return;
+    const d=document.createElement('details'); d.className='compact-advanced';
+    const summary=document.createElement('summary'); summary.textContent='Температура и показание спиртометра';
+    const body=document.createElement('div'); body.className='advanced-body';
+    inputs.parentNode.insertBefore(d,inputs); d.appendChild(summary); d.appendChild(body); body.appendChild(inputs);
+    const corrected=block.querySelector('.measure-corrected'); if(corrected) body.appendChild(corrected);
+    // Default closed to keep the calculator compact; the measured reading is still editable on tap.
+  });
+  // Explicit build marker helps distinguish cached releases during verification.
+  document.documentElement.dataset.appVersion='v7';
 })();
 </script>
 
