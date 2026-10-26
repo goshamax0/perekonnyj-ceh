@@ -1,4 +1,4 @@
-const VERSION = 'v7';
+const VERSION = 'v10';
 const CACHE_NAME = `perekonnyj-tseh-${VERSION}`;
 const APP_STATIC_RESOURCES = [
   './',
